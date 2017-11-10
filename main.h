@@ -88,30 +88,7 @@
 #define LED_Out_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
-#define RADAR_PIN(i) ((i) == 0 ? Radar_A0_Pin : \
-					  (i) == 1 ? Radar_A1_Pin : \
-					  (i) == 1 ? Radar_A1_Pin : \
-					  (i) == 2 ? Radar_A2_Pin : \
-					  (i) == 3 ? Radar_A3_Pin : \
-					  (i) == 4 ? Radar_A4_Pin : \
-					  (i) == 5 ? Radar_A5_Pin : \
-					  (i) == 6 ? Radar_A6_Pin : \
-					  (i) == 7 ? Radar_A7_Pin : \
-					  (i) == 8 ? Radar_A8_Pin : \
-					  (i) == 9 ? Radar_A9_Pin : \
-					             Radar_A10_Pin)
-#define RADAR_GPIO_PORT(i) ((i) == 0 ? Radar_A0_GPIO_Port : \
-					        (i) == 1 ? Radar_A1_GPIO_Port : \
-					        (i) == 1 ? Radar_A1_GPIO_Port : \
-					        (i) == 2 ? Radar_A2_GPIO_Port : \
-					        (i) == 3 ? Radar_A3_GPIO_Port : \
-					        (i) == 4 ? Radar_A4_GPIO_Port : \
-    					    (i) == 5 ? Radar_A5_GPIO_Port : \
-	    				    (i) == 6 ? Radar_A6_GPIO_Port : \
-		    			    (i) == 7 ? Radar_A7_GPIO_Port : \
-			    		    (i) == 8 ? Radar_A8_GPIO_Port : \
-				    	    (i) == 9 ? Radar_A9_GPIO_Port : \
-					                   Radar_A10_GPIO_Port)
+
 /* USER CODE END Private defines */
 
 void _Error_Handler(char *, int);
