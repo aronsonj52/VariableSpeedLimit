@@ -5,7 +5,7 @@
   ******************************************************************************
   ** This notice applies to any and all portions of this file
   * that are not between comment pairs USER CODE BEGIN and
-  * USER CODE END. Other portions of this file, whether 
+  * USER CODE END. Other portions of this file, whether
   * inserted by the user or by software development tools
   * are owned by their respective copyright owners.
   *
@@ -55,7 +55,7 @@
 #define NUM_RADAR_READ_PASSES 20
 #define RADAR_THRESH_HIGH 0xF0
 #define RADAR_THRESH_LOW 0x10
-#define RADAR_TRIGGER_MASK 0x02
+#define RADAR_TRIGGER_MASK 0x40
 
 // Speed
 #define MAX_SPEED 999
@@ -65,7 +65,7 @@
 
 // ADC
 #define ADC_CHANNELS 12
-#define ADC_CONV_CPLT_MASK 0x01
+#define ADC_CONV_CPLT_MASK 0x20
 
 // LED
 #define NUM_LEDS 150
@@ -74,9 +74,19 @@
 #define BLUE 2
 #define BITS_PER_BYTE 8
 #define BYTES_PER_WORD 3
+#define RED_COLOR 0xFF
+#define GREEN_COLOR 0xFF
+#define BLUE_COLOR 0xFF
+//TODO: find good brightness values
+#define BRIGHTNESS 1 // 100% brightness
+#define LP_BRIGHTNESS 0.5 // 50% brightness for low power mode
+
+// Weather
+//TODO: enter weather api string
+#define WEATHER_API_STR 'GET /data/id=&apikey= \n\n'
 
 // Battery
-#define BATTERY_THRESH (.75 * 0xFF) // 75% of 12 V operating voltage
+#define BATTERY_THRESH (0.75 * 0xFF) // 75% of 12 V operating voltage
 #define BATTERY_ADC_CHANNEL (ADC_CHANNELS - 1)
 
 // Speed predict table
@@ -84,13 +94,22 @@
 #define DAYS_PER_WEEK 7
 #define TIMES_PER_DAY (HOUR_ROLLOVER * 2) // 30 min intervals
 
+// Display check
+#define DISPLAY_OFF_MIN 2
+
 // Timer interrupt constants and masks
 #define RADAR_INTR_COUNT_MS 500 // ms
 #define RADAR_TRIGGER_COUNT_MS 999 // <-- radar trigger test val; actual val --> 7 // ms
 #define WEATHER_INTR_COUNT_MIN 15 // min
 #define DISPLAY_SPEED_INTR_COUNT_MIN 15 // min
-#define DISPLAY_CHECK_INTR_COUNT_S 15 // sec
+#define DISPLAY_CHECK_INTR_COUNT_S 5 // sec
 #define BATTERY_INTR_COUNT_MIN 5 // min
+
+#define RADAR_INTR_LP_COUNT_MS 999 // ms - 2x
+#define WEATHER_INTR_LP_COUNT_MIN 30 // min - 2x
+#define DISPLAY_SPEED_INTR_LP_COUNT_MIN 15 // min - 1x
+#define DISPLAY_CHECK_INTR_LP_COUNT_S 1 // sec - 1/5x
+#define BATTERY_INTR_LP_COUNT_MIN 1 // min - 1/5x
 
 #define RADAR_INTR_MASK 0x01
 #define WEATHER_INTR_MASK 0x02
@@ -129,7 +148,6 @@ uint8_t battery_intr_count = BATTERY_INTR_COUNT_MIN;
 uint8_t intr_flag = 0;
 
 // Radar
-uint8_t radar_flag = 0;
 uint8_t radar_data [NUM_RADAR_SEL_PINS];
 uint8_t radar_read [NUM_RADAR_SEL_PINS];
 
@@ -153,8 +171,8 @@ uint8_t adc_channels [ADC_CHANNELS];
 
 // LED
 uint8_t led_data [NUM_LEDS][BYTES_PER_WORD]; // LED data to shift out
-// GREEN : led_data[i][0]
 // RED   : led_data[i][1]
+// GREEN : led_data[i][0]
 // BLUE  : led_data[i][2]
 
 // Speed prediction table
@@ -166,12 +184,12 @@ typedef struct Predict_Arr {
 
 // Battery
 typedef enum VSL_State {
-	VARIABLE = 0,
-	STATIC = 1,
+	STATIC = 0,
+	VARIABLE = 1,
 	DISPLAY_OFF = 2,
 	LOW_POWER = 3
 } State;
-State state = VARIABLE;
+State state = VARIABLE, prev_state = VARIABLE;
 
 /* USER CODE END PV */
 
@@ -221,6 +239,7 @@ void sendLEDWord(uint8_t * word);
 
 // Display check
 void displayCheckMain(void);
+uint16_t getTimeDeltaMin(Speed_Time s_t, uint8_t cur_hour, uint8_t cur_min);
 
 // Battery
 void batteryMain(void);
@@ -348,7 +367,8 @@ int main(void)
 	  pb_flag = 0;
 	  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
 	  HAL_GPIO_WritePin(LD4_GPIO_Port, LD4_Pin, GPIO_PIN_SET);
-	  radar_flag = 0;
+	  intr_flag &= ~RADAR_INTR_MASK; // clear bit
+	  intr_flag &= ~ADC_CONV_CPLT_MASK; // clear bit
 	  triggerRadar();
 	  readRadar();
 
@@ -409,7 +429,7 @@ void SystemClock_Config(void)
   RCC_ClkInitTypeDef RCC_ClkInitStruct;
   RCC_PeriphCLKInitTypeDef PeriphClkInit;
 
-    /**Initializes the CPU, AHB and APB busses clocks 
+    /**Initializes the CPU, AHB and APB busses clocks
     */
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
@@ -423,7 +443,7 @@ void SystemClock_Config(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Initializes the CPU, AHB and APB busses clocks 
+    /**Initializes the CPU, AHB and APB busses clocks
     */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1;
@@ -443,11 +463,11 @@ void SystemClock_Config(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure the Systick interrupt time 
+    /**Configure the Systick interrupt time
     */
   HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
 
-    /**Configure the Systick 
+    /**Configure the Systick
     */
   HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
 
@@ -461,7 +481,7 @@ static void MX_ADC_Init(void)
 
   ADC_ChannelConfTypeDef sConfig;
 
-    /**Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion) 
+    /**Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
     */
   hadc.Instance = ADC1;
   hadc.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
@@ -482,7 +502,7 @@ static void MX_ADC_Init(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
+    /**Configure for the selected ADC regular channel to be converted.
     */
   sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
@@ -492,7 +512,7 @@ static void MX_ADC_Init(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
+    /**Configure for the selected ADC regular channel to be converted.
     */
   sConfig.Channel = ADC_CHANNEL_2;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
@@ -500,7 +520,7 @@ static void MX_ADC_Init(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
+    /**Configure for the selected ADC regular channel to be converted.
     */
   sConfig.Channel = ADC_CHANNEL_3;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
@@ -508,7 +528,7 @@ static void MX_ADC_Init(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
+    /**Configure for the selected ADC regular channel to be converted.
     */
   sConfig.Channel = ADC_CHANNEL_4;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
@@ -516,7 +536,7 @@ static void MX_ADC_Init(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
+    /**Configure for the selected ADC regular channel to be converted.
     */
   sConfig.Channel = ADC_CHANNEL_5;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
@@ -524,7 +544,7 @@ static void MX_ADC_Init(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
+    /**Configure for the selected ADC regular channel to be converted.
     */
   sConfig.Channel = ADC_CHANNEL_6;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
@@ -532,7 +552,7 @@ static void MX_ADC_Init(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
+    /**Configure for the selected ADC regular channel to be converted.
     */
   sConfig.Channel = ADC_CHANNEL_7;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
@@ -540,7 +560,7 @@ static void MX_ADC_Init(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
+    /**Configure for the selected ADC regular channel to be converted.
     */
   sConfig.Channel = ADC_CHANNEL_8;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
@@ -548,7 +568,7 @@ static void MX_ADC_Init(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
+    /**Configure for the selected ADC regular channel to be converted.
     */
   sConfig.Channel = ADC_CHANNEL_9;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
@@ -556,7 +576,7 @@ static void MX_ADC_Init(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
+    /**Configure for the selected ADC regular channel to be converted.
     */
   sConfig.Channel = ADC_CHANNEL_10;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
@@ -564,7 +584,7 @@ static void MX_ADC_Init(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
+    /**Configure for the selected ADC regular channel to be converted.
     */
   sConfig.Channel = ADC_CHANNEL_11;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
@@ -572,7 +592,7 @@ static void MX_ADC_Init(void)
     _Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
+    /**Configure for the selected ADC regular channel to be converted.
     */
   sConfig.Channel = ADC_CHANNEL_13;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
@@ -703,10 +723,10 @@ static void MX_USART1_UART_Init(void)
 
 }
 
-/** 
+/**
   * Enable DMA controller clock
   */
-static void MX_DMA_Init(void) 
+static void MX_DMA_Init(void)
 {
   /* DMA controller clock enable */
   __HAL_RCC_DMA1_CLK_ENABLE();
@@ -718,9 +738,9 @@ static void MX_DMA_Init(void)
 
 }
 
-/** Configure pins as 
-        * Analog 
-        * Input 
+/** Configure pins as
+        * Analog
+        * Input
         * Output
         * EVENT_OUT
         * EXTI
@@ -795,24 +815,24 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		}
 
 		if (min == weather_intr_count) {
-			//weatherMain();
 			intr_flag |= WEATHER_INTR_MASK;
-			weather_intr_count = (weather_intr_count + WEATHER_INTR_COUNT_MIN) % MIN_ROLLOVER;
+			weather_intr_count += (state == LOW_POWER) ? WEATHER_INTR_LP_COUNT_MIN : WEATHER_INTR_COUNT_MIN;
+			weather_intr_count %= MIN_ROLLOVER;
 		}
 		if (min == display_speed_intr_count) {
-			//displaySpeedMain();
 			intr_flag |= DISPLAY_SPEED_INTR_MASK;
-			display_speed_intr_count = (display_speed_intr_count + DISPLAY_SPEED_INTR_COUNT_MIN) % MIN_ROLLOVER;
+			display_speed_intr_count += (state == LOW_POWER) ? DISPLAY_SPEED_INTR_LP_COUNT_MIN : DISPLAY_SPEED_INTR_COUNT_MIN;
+			display_speed_intr_count %= MIN_ROLLOVER;
 		}
 		if (sec == display_check_intr_count) {
-			//displayCheckMain();
 			intr_flag |= DISPLAY_CHECK_INTR_MASK;
-			display_check_intr_count = (display_check_intr_count + DISPLAY_CHECK_INTR_COUNT_S) % SEC_ROLLOVER;
+			display_check_intr_count += (state == LOW_POWER) ? DISPLAY_CHECK_INTR_LP_COUNT_S : DISPLAY_CHECK_INTR_COUNT_S;
+			display_check_intr_count %= SEC_ROLLOVER;
 		}
 		if (min == battery_intr_count) {
-			//batteryMain();
 			intr_flag |= BATTERY_INTR_MASK;
-			battery_intr_count = (battery_intr_count + BATTERY_INTR_COUNT_MIN) % MIN_ROLLOVER;
+			battery_intr_count += (state == LOW_POWER) ? BATTERY_INTR_LP_COUNT_MIN : BATTERY_INTR_COUNT_MIN;
+			battery_intr_count %= MIN_ROLLOVER;
 		}
 	}
 
@@ -829,13 +849,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
 		// radar gun
 		if (ms == radar_intr_count) {
-			//radarMain();
 			intr_flag |= RADAR_INTR_MASK;
-			radar_intr_count = (radar_intr_count + RADAR_INTR_COUNT_MS) % MIN_ROLLOVER;
+			radar_intr_count += (state == LOW_POWER) ? RADAR_INTR_LP_COUNT_MS : RADAR_INTR_COUNT_MS;
+			radar_intr_count %= MIN_ROLLOVER;
 		}
 
-		if (ms == radar_trigger_count && (radar_flag & RADAR_TRIGGER_MASK) == 0) {
-			radar_flag |= RADAR_TRIGGER_MASK;
+		if (ms == radar_trigger_count && (intr_flag & RADAR_TRIGGER_MASK) == 0) {
+			intr_flag |= RADAR_TRIGGER_MASK;
 		}
 	}
 }
@@ -854,12 +874,11 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
 				k = (adc_channels[j] < RADAR_THRESH_LOW) ? (0x01 << (6 - j)) : 0;
 				radar_data[i] |= k;
 			}
-//			radar_flag |= (0x01 << i); // set digit read bit
 			radar_read[i]++;
 		}
 	}
 
-	radar_flag |= ADC_CONV_CPLT_MASK; // set conversion complete bit
+	intr_flag |= ADC_CONV_CPLT_MASK; // set conversion complete bit
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -878,13 +897,13 @@ void radarMain(void) {
 void triggerRadar(void) {
 	radar_trigger_count = (ms + RADAR_TRIGGER_COUNT_MS) % MS_ROLLOVER; // set ms count
 	HAL_GPIO_WritePin(Radar_Trig_GPIO_Port, Radar_Trig_Pin, GPIO_PIN_RESET); // set radar trigger low
-	while ((radar_flag & RADAR_TRIGGER_MASK) == 0); // wait for counter
-	radar_flag &= ~RADAR_TRIGGER_MASK; // clear bit
+	while ((intr_flag & RADAR_TRIGGER_MASK) == 0); // wait for counter
+	intr_flag &= ~RADAR_TRIGGER_MASK; // clear bit
 	HAL_GPIO_WritePin(Radar_Trig_GPIO_Port, Radar_Trig_Pin, GPIO_PIN_SET); // set radar trigger high
 }
 
 void readRadar(void) {
-	radar_flag = 0;
+	intr_flag &= ADC_CONV_CPLT_MASK;
 	radar_data[0] = 0;
 	radar_data[1] = 0;
 	radar_data[2] = 0;
@@ -894,14 +913,13 @@ void readRadar(void) {
 	radar_read[2] = 0;
 	radar_read[3] = 0;
 
-//	while ((radar_flag & 0x0F) != 0x0F) {
 	while (radar_read[0] < NUM_RADAR_READ_PASSES ||
 		   radar_read[1] < NUM_RADAR_READ_PASSES ||
 		   radar_read[2] < NUM_RADAR_READ_PASSES ||
 		   radar_read[3] < NUM_RADAR_READ_PASSES) {
 		HAL_ADC_Start_DMA(&hadc, adc_data, (uint32_t)ADC_CHANNELS);
-		while ((radar_flag & ADC_CONV_CPLT_MASK) == 0); // wait for ADC conversion to complete
-		radar_flag &= ~ADC_CONV_CPLT_MASK; // clear bit
+		while ((intr_flag & ADC_CONV_CPLT_MASK) == 0); // wait for ADC conversion to complete
+		intr_flag &= ~ADC_CONV_CPLT_MASK; // clear bit
 	}
 }
 
@@ -997,19 +1015,13 @@ void sortDistributionTime(void) {
 }
 
 void cleanDistribution(void) {
-	uint8_t now_min = min, now_hour = hour;
-	uint8_t diff_min = 0, i = 0;
+	uint8_t timedelta_min = 0, i = 0;
 
 	while (i < distribution_index) {
 		// if Speed_Time is aged, remove from distribution; else, continue
-		if (now_hour >= (speed_distribution[i].time_hour + 1) % HOUR_ROLLOVER) {
-			diff_min = ((now_hour + HOUR_ROLLOVER - speed_distribution[i].time_hour - 1) % HOUR_ROLLOVER) * MIN_ROLLOVER;
-			diff_min += (now_min + MIN_ROLLOVER - speed_distribution[i].time_min) % MIN_ROLLOVER;
-		} else {
-			diff_min = (now_min + MIN_ROLLOVER - speed_distribution[i].time_min) % MIN_ROLLOVER;
-		}
+		timedelta_min = getTimeDeltaMin(speed_distribution[i], hour, min);
 
-		if (diff_min > MAX_DISTRIBUTION_AGE_MIN) {
+		if (timedelta_min > MAX_DISTRIBUTION_AGE_MIN) {
 			removeSpeedTime(i);
 		} else {
 			i++;
@@ -1020,6 +1032,7 @@ void cleanDistribution(void) {
 void removeSpeedTime(uint8_t index) {
 	// shift down all Speed_Time's after index
 	uint8_t i;
+
 	for (i = index; i < distribution_index; i++) {
 		speed_distribution[i] = speed_distribution[i + 1];
 	}
@@ -1064,9 +1077,8 @@ void weatherMain(void) {
 }
 
 void pingWeatherAPI(void) {
-	//TODO: configure AT commands
-	//TODO: send AT commands to 4G module
-	//TODO: receive data back from 4G module
+	//TODO: send HTTP request over UART
+	//TODO: receive data back over UART
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1128,6 +1140,7 @@ uint8_t getTableIndex(void) {
 uint16_t getAvgSpeed(Predict_Element p_e) {
 	uint16_t sum = 0;
 	uint8_t i;
+
 	for (i = 0; i < p_e.index; i++) {
 		sum += p_e.speed_arr[i];
 	}
@@ -1157,11 +1170,19 @@ void displaySpeedLimit(uint32_t speed) {
 	//uint8_t tens = speed / 10;
 	//uint8_t ones = speed % 10;
 	//TODO: translate tens and ones to LED segment addresses using led_data
+	uint8_t i;
+
+	for (i = 0; i < NUM_LEDS; i++) {
+	    led_data[i][RED] = (uint8_t)(RED_COLOR * (state == LOW_POWER ? LP_BRIGHTNESS : BRIGHTNESS));
+	    led_data[i][GREEN] = (uint8_t)(GREEN_COLOR * (state == LOW_POWER ? LP_BRIGHTNESS : BRIGHTNESS));
+	    led_data[i][BLUE] = (uint8_t)(BLUE_COLOR * (state == LOW_POWER ? LP_BRIGHTNESS : BRIGHTNESS));
+	}
 	sendLEDData();
 }
 
 void clearLEDData(void) {
 	uint8_t i;
+
 	for (i = 0; i < NUM_LEDS; i++) {
 		led_data[i][RED] = 0x00;
 		led_data[i][GREEN] = 0x00;
@@ -1171,6 +1192,7 @@ void clearLEDData(void) {
 
 void sendLEDData(void) {
 	uint8_t i;
+
 	for (i = 0; i < NUM_LEDS; i++) {
 		sendLEDWord(led_data[i]);
 	}
@@ -1324,7 +1346,38 @@ void sendLEDWord(uint8_t * word) {
 void displayCheckMain(void) {
 	//TODO: turn on/off display according to latest Speed_Time.timestamp
 	sortDistributionTime();
-	speed_time = speed_distribution[distribution_index - 1];
+	uint16_t timedelta_min = getTimeDeltaMin(speed_distribution[distribution_index - 1], hour, min);
+
+	if (state == DISPLAY_OFF) {
+		if (timedelta_min <= DISPLAY_OFF_MIN) {
+		    prev_state = state;
+			state = VARIABLE;
+		}
+	} else {
+		if (timedelta_min > DISPLAY_OFF_MIN) {
+			prev_state = state;
+			state = DISPLAY_OFF;
+		}
+	}
+}
+
+uint16_t getTimeDeltaMin(Speed_Time s_t, uint8_t cur_hour, uint8_t cur_min) {
+	uint16_t timedelta_min = 0;
+
+	// add hours between
+	if (cur_hour > (s_t.time_hour + 1) % HOUR_ROLLOVER) {
+		timedelta_min += ((cur_hour + HOUR_ROLLOVER - s_t.time_hour - 1) % HOUR_ROLLOVER) * MIN_ROLLOVER;
+	}
+
+	// add hour if off by 1 hour and minutes are later
+	if (cur_hour >= (s_t.time_hour + 1) % HOUR_ROLLOVER && cur_min > s_t.time_min) {
+		timedelta_min += MIN_ROLLOVER;
+	}
+
+	// add minute difference
+	timedelta_min += (cur_min + MIN_ROLLOVER - speed_distribution[i].time_min) % MIN_ROLLOVER;
+
+	return timedelta_min;
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -1333,8 +1386,16 @@ void displayCheckMain(void) {
 
 void batteryMain(void) {
 	//TODO: check battery level against threshold, enter low power mode if necessary
-	if (adc_channels[BATTERY_ADC_CHANNEL] < BATTERY_THRESH) {
-		state = LOW_POWER;
+	if (state == LOW_POWER) {
+	    if (adc_channels[BATTERY_ADC_CHANNEL] <= BATTERY_THRESH) {
+	        prev_state = state;
+            state = LOW_POWER;
+        }
+	} else {
+	    if (adc_channels[BATTERY_ADC_CHANNEL] > BATTERY_THRESH) {
+	        prev_state = state;
+            state = VARIABLE;
+        }
 	}
 }
 
@@ -1349,10 +1410,10 @@ void _Error_Handler(char * file, int line)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
-  while(1) 
+  while(1)
   {
   }
-  /* USER CODE END Error_Handler_Debug */ 
+  /* USER CODE END Error_Handler_Debug */
 }
 
 #ifdef USE_FULL_ASSERT
@@ -1377,10 +1438,10 @@ void assert_failed(uint8_t* file, uint32_t line)
 
 /**
   * @}
-  */ 
+  */
 
 /**
   * @}
-*/ 
+*/
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
