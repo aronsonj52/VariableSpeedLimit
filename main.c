@@ -294,16 +294,16 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  uint16_t mode = 0;
+//  uint16_t mode = 0;
 
   while (1) {
   /* USER CODE END WHILE */
 
   /* USER CODE BEGIN 3 */
-	  uint16_t i, j;
+//	  uint16_t i, j;
 
 	  // LED output test
-
+/*
 	  clearLEDData();
 
 	  // all on
@@ -312,7 +312,7 @@ int main(void)
 		  led_data[i][GREEN] = 0xFF;
 		  led_data[i][BLUE] = 0xFF;
 	  }
-/*
+
 	  // grow and shrink rainbow
 	  for (i = 0; i < NUM_LEDS; i++) {
 		  if (mode < NUM_LEDS && i < mode) {
@@ -354,7 +354,7 @@ int main(void)
 			  led_data[k][RED] = (uint8_t)((k - 100) * 1.0 / 50.0 * 0xFF); // increase RED
 		  }
 	  }
-*/
+
 
 	  sendLEDData();
 
@@ -364,7 +364,7 @@ int main(void)
 	  }
 
 	  mode = (mode + 1) % (NUM_LEDS * 2);
-
+*/
 
 	  // Radar Trigger Test
 /*
@@ -380,7 +380,7 @@ int main(void)
 */
 
 	  // Weather Data Test
-/*
+
 	  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
 	  HAL_GPIO_WritePin(LD4_GPIO_Port, LD4_Pin, GPIO_PIN_RESET);
 	  while (pb_flag == 0); // wait for user to push button
@@ -388,7 +388,7 @@ int main(void)
 	  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
 	  HAL_GPIO_WritePin(LD4_GPIO_Port, LD4_Pin, GPIO_PIN_SET);
 	  weatherMain();
-*/
+
 	  // Normal Operation
 /*
 	  if (intr_flag & RADAR_INTR_MASK) {
@@ -1071,7 +1071,7 @@ void sortDistributionSpeed(void) {
 ///////////////////////////////////////////////////////////////////////////////
 
 void weatherMain(void) {
-	HAL_UART_Transmit(&huart1, (uint8_t *)WEATHER_API_STR, sizeof((uint8_t *)WEATHER_API_STR), HAL_MAX_DELAY);
+	HAL_UART_Transmit(&huart1, WEATHER_API_STR, sizeof(WEATHER_API_STR) - 1, HAL_MAX_DELAY);
 
 	uint16_t i = 0;
 	do {
