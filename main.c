@@ -1,11 +1,11 @@
 /**
   ******************************************************************************
-  * File Name          : main.c
-  * Description        : Main program body
+  * File Name		  : main.c
+  * Description		: Main program body
   ******************************************************************************
   ** This notice applies to any and all portions of this file
   * that are not between comment pairs USER CODE BEGIN and
-  * USER CODE END. Other portions of this file, whether 
+  * USER CODE END. Other portions of this file, whether
   * inserted by the user or by software development tools
   * are owned by their respective copyright owners.
   *
@@ -14,13 +14,13 @@
   * Redistribution and use in source and binary forms, with or without modification,
   * are permitted provided that the following conditions are met:
   *   1. Redistributions of source code must retain the above copyright notice,
-  *      this list of conditions and the following disclaimer.
+  *	  this list of conditions and the following disclaimer.
   *   2. Redistributions in binary form must reproduce the above copyright notice,
-  *      this list of conditions and the following disclaimer in the documentation
-  *      and/or other materials provided with the distribution.
+  *	  this list of conditions and the following disclaimer in the documentation
+  *	  and/or other materials provided with the distribution.
   *   3. Neither the name of STMicroelectronics nor the names of its contributors
-  *      may be used to endorse or promote products derived from this software
-  *      without specific prior written permission.
+  *	  may be used to endorse or promote products derived from this software
+  *	  without specific prior written permission.
   *
   * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
   * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
@@ -227,6 +227,7 @@ uint8_t endOfWeatherData(void);
 // Display speed
 void displaySpeedMain(void);
 void checkWeather(void);
+double convertKtoF(double k);
 void checkSpeedPrediction(void);
 uint16_t getPredictSpeed(void);
 uint8_t getTableIndex(void);
@@ -240,10 +241,11 @@ void sendLEDWord(uint8_t * word);
 
 // Display check
 void displayCheckMain(void);
-uint16_t getTimeDeltaMin(Speed_Time s_t, uint8_t cur_hour, uint8_t cur_min);
+uint16_t getTimeDeltaMin(Speed_Time * s_t, uint8_t cur_hour, uint8_t cur_min);
 
 // Battery
 void batteryMain(void);
+void enterLowPower(void);
 
 
 /* USER CODE END PFP */
@@ -426,8 +428,8 @@ void SystemClock_Config(void)
   RCC_ClkInitTypeDef RCC_ClkInitStruct;
   RCC_PeriphCLKInitTypeDef PeriphClkInit;
 
-    /**Initializes the CPU, AHB and APB busses clocks 
-    */
+	/**Initializes the CPU, AHB and APB busses clocks
+	*/
   RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = 16;
@@ -437,35 +439,35 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PREDIV = RCC_PREDIV_DIV1;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Initializes the CPU, AHB and APB busses clocks 
-    */
+	/**Initializes the CPU, AHB and APB busses clocks
+	*/
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
-                              |RCC_CLOCKTYPE_PCLK1;
+							  |RCC_CLOCKTYPE_PCLK1;
   RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
   RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
 
   if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART1;
   PeriphClkInit.Usart1ClockSelection = RCC_USART1CLKSOURCE_PCLK1;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure the Systick interrupt time 
-    */
+	/**Configure the Systick interrupt time
+	*/
   HAL_SYSTICK_Config(HAL_RCC_GetHCLKFreq()/1000);
 
-    /**Configure the Systick 
-    */
+	/**Configure the Systick
+	*/
   HAL_SYSTICK_CLKSourceConfig(SYSTICK_CLKSOURCE_HCLK);
 
   /* SysTick_IRQn interrupt configuration */
@@ -478,8 +480,8 @@ static void MX_ADC_Init(void)
 
   ADC_ChannelConfTypeDef sConfig;
 
-    /**Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion) 
-    */
+	/**Configure the global features of the ADC (Clock, Resolution, Data Alignment and number of conversion)
+	*/
   hadc.Instance = ADC1;
   hadc.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
   hadc.Init.Resolution = ADC_RESOLUTION_8B;
@@ -496,105 +498,105 @@ static void MX_ADC_Init(void)
   hadc.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   if (HAL_ADC_Init(&hadc) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
-    */
+	/**Configure for the selected ADC regular channel to be converted.
+	*/
   sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_RANK_CHANNEL_NUMBER;
   sConfig.SamplingTime = ADC_SAMPLETIME_41CYCLES_5;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
-    */
+	/**Configure for the selected ADC regular channel to be converted.
+	*/
   sConfig.Channel = ADC_CHANNEL_2;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
-    */
+	/**Configure for the selected ADC regular channel to be converted.
+	*/
   sConfig.Channel = ADC_CHANNEL_3;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
-    */
+	/**Configure for the selected ADC regular channel to be converted.
+	*/
   sConfig.Channel = ADC_CHANNEL_4;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
-    */
+	/**Configure for the selected ADC regular channel to be converted.
+	*/
   sConfig.Channel = ADC_CHANNEL_5;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
-    */
+	/**Configure for the selected ADC regular channel to be converted.
+	*/
   sConfig.Channel = ADC_CHANNEL_6;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
-    */
+	/**Configure for the selected ADC regular channel to be converted.
+	*/
   sConfig.Channel = ADC_CHANNEL_7;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
-    */
+	/**Configure for the selected ADC regular channel to be converted.
+	*/
   sConfig.Channel = ADC_CHANNEL_8;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
-    */
+	/**Configure for the selected ADC regular channel to be converted.
+	*/
   sConfig.Channel = ADC_CHANNEL_9;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
-    */
+	/**Configure for the selected ADC regular channel to be converted.
+	*/
   sConfig.Channel = ADC_CHANNEL_10;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
-    */
+	/**Configure for the selected ADC regular channel to be converted.
+	*/
   sConfig.Channel = ADC_CHANNEL_11;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
-    /**Configure for the selected ADC regular channel to be converted. 
-    */
+	/**Configure for the selected ADC regular channel to be converted.
+	*/
   sConfig.Channel = ADC_CHANNEL_13;
   if (HAL_ADC_ConfigChannel(&hadc, &sConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
 }
@@ -615,20 +617,20 @@ static void MX_TIM1_Init(void)
   htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
   if (HAL_TIM_ConfigClockSource(&htim1, &sClockSourceConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
 }
@@ -648,20 +650,20 @@ static void MX_TIM2_Init(void)
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
   if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
 }
@@ -681,20 +683,20 @@ static void MX_TIM3_Init(void)
   htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
   sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
   if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
   if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
 }
@@ -715,15 +717,15 @@ static void MX_USART1_UART_Init(void)
   huart1.AdvancedInit.AdvFeatureInit = UART_ADVFEATURE_NO_INIT;
   if (HAL_UART_Init(&huart1) != HAL_OK)
   {
-    _Error_Handler(__FILE__, __LINE__);
+	_Error_Handler(__FILE__, __LINE__);
   }
 
 }
 
-/** 
+/**
   * Enable DMA controller clock
   */
-static void MX_DMA_Init(void) 
+static void MX_DMA_Init(void)
 {
   /* DMA controller clock enable */
   __HAL_RCC_DMA1_CLK_ENABLE();
@@ -735,12 +737,12 @@ static void MX_DMA_Init(void)
 
 }
 
-/** Configure pins as 
-        * Analog 
-        * Input 
-        * Output
-        * EVENT_OUT
-        * EXTI
+/** Configure pins as
+		* Analog
+		* Input
+		* Output
+		* EVENT_OUT
+		* EXTI
 */
 static void MX_GPIO_Init(void)
 {
@@ -917,7 +919,7 @@ void readRadar(void) {
 		   radar_read[3] < NUM_RADAR_READ_PASSES) {
 		HAL_ADC_Start_DMA(&hadc, adc_data, (uint32_t)ADC_CHANNELS);
 		while ((intr_flag & ADC_CONV_CPLT_MASK) == 0); // wait for ADC conversion to complete
-		intr_flag &= ~ADC_CONV_CPLT_MASK; // clear bit
+		intr_flag &= ~ADC_CONV_CPLT_MASK; // clear conversion complete bit
 	}
 }
 
@@ -928,7 +930,9 @@ void storeSpeedTime(void) {
 		return;
 	}
 
+	// if speed_distribution is full, replace oldest speed
 	if (distribution_index == MAX_DISTRIBUTION_SIZE) {
+		sortDistributionTime();
 		distribution_index--;
 	}
 
@@ -986,6 +990,7 @@ uint32_t segmentToInt(uint8_t seg) {
 	}
 }
 
+// sorts speed_distribution by time most recent to oldest (decreasing)
 void sortDistributionTime(void) {
 	uint8_t i, j, max_time_index;
 
@@ -996,10 +1001,9 @@ void sortDistributionTime(void) {
 		for (j = i + 1; j < distribution_index; j++) {
 			if (speed_distribution[j].time_hour >= (speed_distribution[max_time_index].time_hour + 1) % HOUR_ROLLOVER) {
 				max_time_index = j;
-			} else if (speed_distribution[j].time_hour == speed_distribution[max_time_index].time_hour) {
-				if (speed_distribution[j].time_min > speed_distribution[max_time_index].time_min) {
-					max_time_index = j;
-				}
+			} else if (speed_distribution[j].time_hour == speed_distribution[max_time_index].time_hour &&
+					   speed_distribution[j].time_min > speed_distribution[max_time_index].time_min) {
+				max_time_index = j;
 			}
 		}
 
@@ -1041,9 +1045,11 @@ void removeSpeedTime(uint8_t index) {
 
 uint16_t getSpeedPercentile(void) {
 	sortDistributionSpeed();
+	//TODO: find corner cases
 	return speed_distribution[(uint16_t)(SPEED_PERCENTILE * distribution_index)].speed;
 }
 
+// sorts speed_distribution by speed lowest to highest (increasing)
 void sortDistributionSpeed(void) {
 	uint8_t i, j, min_speed_index;
 
@@ -1078,7 +1084,20 @@ void weatherMain(void) {
 		HAL_UART_Receive(&huart1, &weather_buffer[i++], 1, HAL_MAX_DELAY);
 	} while (!endOfWeatherData());
 
-	weather_data = cJSON_Parse((char *)weather_buffer);
+	// remove '*CLOS*' at end
+	if (endOfWeatherData()) {
+		uint16_t i = 0;
+		while (weather_buffer[i++] != '\0');
+		i -= 2;
+		weather_buffer[i - 5] = '\0';
+		weather_buffer[i - 4] = '\0';
+		weather_buffer[i - 3] = '\0';
+		weather_buffer[i - 2] = '\0';
+		weather_buffer[i - 1] = '\0';
+		weather_buffer[i] = '\0';
+	}
+
+	weather_data = cJSON_Parse((char *)(weather_buffer + 6));
 }
 
 uint8_t endOfWeatherData(void) {
@@ -1105,7 +1124,7 @@ void displaySpeedMain(void) {
 	checkSpeedPrediction();
 	roundVariableSpeed();
 	storeSpeedInTable();
-	if (variable_speed < display_speed) {
+	if (variable_speed != display_speed) {
 		display_speed = variable_speed;
 		displaySpeedLimit(display_speed);
 	}
@@ -1119,6 +1138,10 @@ void checkWeather(void) {
 	}
 }
 
+double convertKtoF(double k) {
+	return (k - 273.15) * 9 / 5 + 32;
+}
+
 void checkSpeedPrediction(void) {
 	//TODO: adjust speed based on speed prediction table
 	uint32_t predict_speed = getPredictSpeed();
@@ -1129,14 +1152,14 @@ void checkSpeedPrediction(void) {
 
 //uint16_t getPredictSpeed(void) {
 //	uint8_t day_of_week = day;
-//	uint8_t time_of_day = getTableIndex();
+//	uint8_t time_of_day = getTableIndex(hour, min);
 //	time_of_day = (time_of_day + 1) % TIMES_PER_DAY; // move to next time interval index
 //	//TODO: more statistics on predict_table
 //	return getAvgSpeed(predict_table[day_of_week][time_of_day]);
 //}
 
-uint8_t getTableIndex(void) {
-	uint8_t table_index = min;
+uint8_t getTableIndex(uint8_t h, uint8_t m) {
+	uint8_t table_index = m;
 
 	// round to nearest 30 min
 	if (table_index < (MIN_ROLLOVER / 4)) {
@@ -1146,8 +1169,9 @@ uint8_t getTableIndex(void) {
 	} else {
 		table_index = MIN_ROLLOVER;
 	}
-	table_index += hour * MIN_ROLLOVER; // add hours converted to minutes
+	table_index += h * MIN_ROLLOVER; // add hours converted to minutes
 	table_index /= (MIN_ROLLOVER * HOUR_ROLLOVER / TIMES_PER_DAY); // convert to predict table index
+	table_index %= TIMES_PER_DAY;
 
 	return table_index;
 }
@@ -1165,17 +1189,18 @@ uint16_t getAvgSpeed(Predict_Element p_e) {
 void roundVariableSpeed(void) {
 	uint8_t ones = variable_speed % 10;
 	if (ones <= 2) { // x0-x2 -> x0
-		variable_speed = (int)(variable_speed / 10) * 10;
+		variable_speed = (uint16_t)(variable_speed / 10) * 10;
 	} else if (ones <= 7) { // x3-x7 -> x5
-		variable_speed = (int)(variable_speed / 10) * 10 + 5;
+		variable_speed = (uint16_t)(variable_speed / 10) * 10 + 5;
 	} else { // x8-x9 -> (x+1)0
-		variable_speed = (int)(variable_speed / 10) * 10 + 10;
+		variable_speed = (uint16_t)(variable_speed / 10) * 10 + 10;
 	}
 }
 
 //void storeSpeedInTable(void) {
 //	uint8_t day_of_week = day;
-//	uint8_t time_of_day = getTableIndex();
+//	uint8_t time_of_day = getTableIndex(hour, min);
+	//TODO: figure out what to do when element in predict_table is full
 //	predict_table[day_of_week][time_of_day].speed_arr[predict_table[day_of_week][time_of_day].index] = variable_speed;
 //	predict_table[day_of_week][time_of_day].index = (predict_table[day_of_week][time_of_day].index + 1) % MAX_PREDICT_SIZE;
 //}
@@ -1188,9 +1213,9 @@ void displaySpeedLimit(uint32_t speed) {
 	uint8_t i;
 
 	for (i = 0; i < NUM_LEDS; i++) {
-	    led_data[i][RED] = (uint8_t)(RED_COLOR * (state == LOW_POWER ? LP_BRIGHTNESS : BRIGHTNESS));
-	    led_data[i][GREEN] = (uint8_t)(GREEN_COLOR * (state == LOW_POWER ? LP_BRIGHTNESS : BRIGHTNESS));
-	    led_data[i][BLUE] = (uint8_t)(BLUE_COLOR * (state == LOW_POWER ? LP_BRIGHTNESS : BRIGHTNESS));
+		led_data[i][RED] = (uint8_t)(RED_COLOR * (state == LOW_POWER ? LP_BRIGHTNESS : BRIGHTNESS));
+		led_data[i][GREEN] = (uint8_t)(GREEN_COLOR * (state == LOW_POWER ? LP_BRIGHTNESS : BRIGHTNESS));
+		led_data[i][BLUE] = (uint8_t)(BLUE_COLOR * (state == LOW_POWER ? LP_BRIGHTNESS : BRIGHTNESS));
 	}
 	sendLEDData();
 }
@@ -1360,12 +1385,12 @@ void sendLEDWord(uint8_t * word) {
 
 void displayCheckMain(void) {
 	sortDistributionTime();
-	uint16_t timedelta_min = getTimeDeltaMin(speed_distribution[distribution_index - 1], hour, min);
+	uint16_t timedelta_min = getTimeDeltaMin(&speed_distribution[0], hour, min);
 
 	if (state == DISPLAY_OFF) {
 		if (timedelta_min <= DISPLAY_OFF_MIN) {
 			state = prev_state;
-		    prev_state = DISPLAY_OFF;
+			prev_state = DISPLAY_OFF;
 		}
 	} else {
 		if (timedelta_min > DISPLAY_OFF_MIN) {
@@ -1375,20 +1400,20 @@ void displayCheckMain(void) {
 	}
 }
 
-uint16_t getTimeDeltaMin(Speed_Time s_t, uint8_t cur_hour, uint8_t cur_min) {
+uint16_t getTimeDeltaMin(Speed_Time * s_t, uint8_t cur_hour, uint8_t cur_min) {
 	uint16_t timedelta_min = 0;
 
 	// add hours between
-	uint8_t hours = (cur_hour + HOUR_ROLLOVER - s_t.time_hour) % HOUR_ROLLOVER;
+	uint8_t hours = (cur_hour + HOUR_ROLLOVER - s_t->time_hour) % HOUR_ROLLOVER;
 	timedelta_min += hours * MIN_ROLLOVER;
 
 	// check for minute difference included in hours
-	if (hours >= 1 && cur_min < s_t.time_min) {
+	if (hours >= 1 && cur_min < s_t->time_min) {
 		timedelta_min -= MIN_ROLLOVER;
 	}
 
 	// add minute difference
-	timedelta_min += (cur_min + MIN_ROLLOVER - s_t.time_min) % MIN_ROLLOVER;
+	timedelta_min += (cur_min + MIN_ROLLOVER - s_t->time_min) % MIN_ROLLOVER;
 
 	return timedelta_min;
 }
@@ -1400,16 +1425,28 @@ uint16_t getTimeDeltaMin(Speed_Time s_t, uint8_t cur_hour, uint8_t cur_min) {
 void batteryMain(void) {
 	//TODO: check battery level against threshold, enter low power mode if necessary
 	if (state == LOW_POWER) {
-	    if (adc_channels[BATTERY_ADC_CHANNEL] <= BATTERY_THRESH) {
-            state = prev_state;
-	        prev_state = LOW_POWER;
-        }
+		if (adc_channels[BATTERY_ADC_CHANNEL] <= BATTERY_THRESH) {
+			state = prev_state;
+			prev_state = LOW_POWER;
+		}
 	} else {
-	    if (adc_channels[BATTERY_ADC_CHANNEL] > BATTERY_THRESH) {
-	        prev_state = state;
-            state = LOW_POWER;
-        }
+		if (adc_channels[BATTERY_ADC_CHANNEL] > BATTERY_THRESH) {
+			prev_state = state;
+			state = LOW_POWER;
+			enterLowPower();
+		}
 	}
+}
+
+void enterLowPower(void) {
+	//TODO: turn down LED brightness
+	uint8_t i;
+	for (i = 0; i < NUM_LEDS; i++) {
+		led_data[i][RED] = (uint8_t)(led_data[i][RED] * LP_BRIGHTNESS);
+		led_data[i][GREEN] = (uint8_t)(led_data[i][GREEN] * LP_BRIGHTNESS);
+		led_data[i][BLUE] = (uint8_t)(led_data[i][BLUE] * LP_BRIGHTNESS);
+	}
+	sendLEDData();
 }
 
 /* USER CODE END 4 */
@@ -1426,7 +1463,7 @@ void _Error_Handler(char * file, int line)
   while(1)
   {
   }
-  /* USER CODE END Error_Handler_Debug */ 
+  /* USER CODE END Error_Handler_Debug */
 }
 
 #ifdef USE_FULL_ASSERT
@@ -1442,7 +1479,7 @@ void assert_failed(uint8_t* file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
   /* User can add his own implementation to report the file name and line number,
-    ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+	ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
   /* USER CODE END 6 */
 
 }
@@ -1451,10 +1488,10 @@ void assert_failed(uint8_t* file, uint32_t line)
 
 /**
   * @}
-  */ 
+  */
 
 /**
   * @}
-*/ 
+*/
 
 /************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
