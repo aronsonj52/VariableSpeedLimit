@@ -203,6 +203,8 @@ State state = VARIABLE, prev_state = VARIABLE;
 
 // Hardware/Software Checks
 uint8_t module_check = 0;
+uint8_t radar_fails = 0;
+uint8_t weather_fails = 0;
 
 /* USER CODE END PV */
 
@@ -237,6 +239,8 @@ void sortDistributionSpeed(void);
 
 // Weather
 void weatherMain(void);
+void retrieveWeatherData(void);
+void checkValidWeather(void);
 uint8_t endOfWeatherData(void);
 
 // Display speed
@@ -985,8 +989,16 @@ void storeSpeedTime(void) {
 
 	// do not store unread speeds
 	if (speed == 0 || speed > MAX_SPEED) {
+		radar_fails++;
+		if (radar_fails == NUM_RADAR_ATTEMPTS) {
+			radar_fails = 0; // clear num radar fails
+			module_check &= ~RADAR_CHECK_MASK; // clear radar check bit
+			checkModuleStatus();
+		}
 		return;
 	}
+
+	radar_fails = 0; // clear num radar fails
 
 	// check for STATIC state
 	if (state == STATIC) {
@@ -1141,12 +1153,17 @@ void sortDistributionSpeed(void) {
 ///////////////////////////////////////////////////////////////////////////////
 
 void weatherMain(void) {
+	retrieveWeatherData();
+	checkValidWeather();
+}
+
+void retrieveWeatherData(void) {
 	HAL_UART_Transmit(&huart1, WEATHER_API_STR, sizeof(WEATHER_API_STR) - 1, HAL_MAX_DELAY);
 
 	uint16_t i = 0;
 	do {
 		HAL_UART_Receive(&huart1, &weather_buffer[i++], 1, HAL_MAX_DELAY);
-	} while (!endOfWeatherData());
+	} while (!endOfWeatherData() && i < WEATHER_DATA_SIZE);
 
 	// remove '*CLOS*' at end
 	if (endOfWeatherData()) {
@@ -1162,11 +1179,21 @@ void weatherMain(void) {
 	}
 
 	weather_data = cJSON_Parse((char *)(weather_buffer + 6));
+}
 
+void checkValidWeather(void) {
 	// check for valid weather data
 	if (weather_data == NULL || !cJSON_HasObjectItem(weather_data, "main")) {
+		weather_fails++;
+		if (weather_fails == NUM_WEATHER_ATTEMPTS) {
+			weather_fails = 0; // clear num weather fails
+			module_check &= ~WEATHER_CHECK_MASK; // clear weather check bit
+			checkModuleStatus();
+		}
 		return;
 	}
+
+	weather_fails = 0; // clear num weather fails
 
 	// check for STATIC state
 	if (state == STATIC) {
@@ -1178,7 +1205,7 @@ void weatherMain(void) {
 uint8_t endOfWeatherData(void) {
 	// find end of string
 	uint16_t i = 0;
-	while (weather_buffer[i++] != '\0');
+	while (i < WEATHER_DATA_SIZE && weather_buffer[i++] != '\0');
 	if (i < 7) {
 		return 0;
 	}
@@ -1516,11 +1543,14 @@ void displayCheckMain(void) {
 		if (timedelta_min <= DISPLAY_OFF_MIN) {
 			state = prev_state;
 			prev_state = DISPLAY_OFF;
+			displaySpeedLimit(display_speed);
 		}
 	} else {
 		if (timedelta_min > DISPLAY_OFF_MIN) {
 			prev_state = state;
 			state = DISPLAY_OFF;
+			clearLEDData();
+			sendLEDData();
 		}
 	}
 }
