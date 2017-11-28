@@ -56,12 +56,14 @@
 #define RADAR_THRESH_HIGH 0xF0
 #define RADAR_THRESH_LOW 0x10
 #define RADAR_TRIGGER_MASK 0x40
+#define NUM_RADAR_ATTEMPTS 5
 
 // Speed
 #define MAX_SPEED 999
 #define MAX_DISTRIBUTION_SIZE 10
 #define MAX_DISTRIBUTION_AGE_MIN 30
-#define SPEED_PERCENTILE .85 // 85th percentile
+#define SPEED_PERCENTILE 0.85 // 85th percentile
+#define STATIC_SPEED 65 // default speed
 
 // ADC
 #define ADC_CHANNELS 12
@@ -74,6 +76,7 @@
 #define BLUE 2
 #define BITS_PER_BYTE 8
 #define BYTES_PER_WORD 3
+//TODO: find good color values
 #define RED_COLOR 0xFF
 #define GREEN_COLOR 0xFF
 #define BLUE_COLOR 0xFF
@@ -84,6 +87,8 @@
 // Weather
 #define WEATHER_API_STR "GET /data/2.5/weather?id=4928096&appid=37813a3a15e507a6206d0a276ca84b29 \n\n"
 #define WEATHER_DATA_SIZE 500
+#define NUM_WEATHER_ATTEMPTS 5
+#define NUM_WEATHER_CHECKS 3
 
 // Battery
 #define BATTERY_THRESH (0.75 * 0xFF) // 75% of 12 V operating voltage
@@ -116,6 +121,10 @@
 #define DISPLAY_SPEED_INTR_MASK 0x04
 #define DISPLAY_CHECK_INTR_MASK 0x08
 #define BATTERY_INTR_MASK 0x10
+
+#define RADAR_CHECK_MASK 0x01
+#define WEATHER_CHECK_MASK 0x02
+
 /* USER CODE END Includes */
 
 /* Private variables ---------------------------------------------------------*/
@@ -192,6 +201,9 @@ typedef enum VSL_State {
 } State;
 State state = VARIABLE, prev_state = VARIABLE;
 
+// Hardware/Software Checks
+uint8_t module_check = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -206,6 +218,9 @@ static void MX_TIM2_Init(void);
 
 /* USER CODE BEGIN PFP */
 /* Private function prototypes -----------------------------------------------*/
+
+void init(void);
+void checkModuleStatus(void);
 
 // Radar
 void radarMain(void);
@@ -292,6 +307,8 @@ int main(void)
 
   HAL_GPIO_WritePin(LED_Out_GPIO_Port, LED_Out_Pin, GPIO_PIN_SET); // initialize LED_Out_Pin to not low for IDLE
   HAL_GPIO_WritePin(Radar_Trig_GPIO_Port, Radar_Trig_Pin, GPIO_PIN_SET); // set radar trigger high for IDLE
+
+  init();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -819,7 +836,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			weather_intr_count %= MIN_ROLLOVER;
 		}
 		if (min == display_speed_intr_count) {
-			intr_flag |= DISPLAY_SPEED_INTR_MASK; // set display speed intr bit
+			if (state != STATIC) {
+				intr_flag |= DISPLAY_SPEED_INTR_MASK; // set display speed intr bit
+			}
 			display_speed_intr_count += (state == LOW_POWER) ? DISPLAY_SPEED_INTR_LP_COUNT_MIN : DISPLAY_SPEED_INTR_COUNT_MIN;
 			display_speed_intr_count %= MIN_ROLLOVER;
 		}
@@ -880,6 +899,44 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
 	intr_flag |= ADC_CONV_CPLT_MASK; // set conversion complete bit
 }
 
+void init(void) {
+	uint8_t i;
+
+	// check radar for correct operation
+	for (i = 0; i < NUM_RADAR_ATTEMPTS; i++) {
+		triggerRadar();
+		readRadar();
+		if (getRadarValue() != 0) {
+			module_check |= RADAR_CHECK_MASK;
+		}
+	}
+
+	// check WiFi module for correct operation
+	for (i = 0; i < NUM_WEATHER_ATTEMPTS; i++) {
+		weatherMain();
+		if (weather_data != NULL && cJSON_HasObjectItem(weather_data, "main")) {
+			module_check |= WEATHER_CHECK_MASK;
+		}
+	}
+
+	checkModuleStatus();
+}
+
+void checkModuleStatus(void) {
+	if (state == STATIC) {
+		if ((module_check & RADAR_CHECK_MASK) && (module_check & WEATHER_CHECK_MASK)) {
+			state = prev_state;
+			prev_state = STATIC;
+		}
+	} else {
+		if ((module_check & RADAR_CHECK_MASK) == 0 || (module_check & WEATHER_CHECK_MASK) == 0) {
+			prev_state = state;
+			state = STATIC;
+			displaySpeedLimit(STATIC_SPEED);
+		}
+	}
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // RADAR																	 //
 ///////////////////////////////////////////////////////////////////////////////
@@ -925,9 +982,16 @@ void readRadar(void) {
 
 void storeSpeedTime(void) {
 	uint16_t speed = getRadarValue();
+
 	// do not store unread speeds
 	if (speed == 0 || speed > MAX_SPEED) {
 		return;
+	}
+
+	// check for STATIC state
+	if (state == STATIC) {
+		module_check |= RADAR_CHECK_MASK;
+		checkModuleStatus();
 	}
 
 	// if speed_distribution is full, replace oldest speed
@@ -1045,7 +1109,7 @@ void removeSpeedTime(uint8_t index) {
 
 uint16_t getSpeedPercentile(void) {
 	sortDistributionSpeed();
-	//TODO: find corner cases
+	//TODO: fix this
 	return speed_distribution[(uint16_t)(SPEED_PERCENTILE * distribution_index)].speed;
 }
 
@@ -1098,6 +1162,17 @@ void weatherMain(void) {
 	}
 
 	weather_data = cJSON_Parse((char *)(weather_buffer + 6));
+
+	// check for valid weather data
+	if (weather_data == NULL || !cJSON_HasObjectItem(weather_data, "main")) {
+		return;
+	}
+
+	// check for STATIC state
+	if (state == STATIC) {
+		module_check |= WEATHER_CHECK_MASK;
+		checkModuleStatus();
+	}
 }
 
 uint8_t endOfWeatherData(void) {
@@ -1120,10 +1195,10 @@ uint8_t endOfWeatherData(void) {
 ///////////////////////////////////////////////////////////////////////////////
 
 void displaySpeedMain(void) {
+	storeSpeedInTable();
 	checkWeather();
 	checkSpeedPrediction();
 	roundVariableSpeed();
-	storeSpeedInTable();
 	if (variable_speed != display_speed) {
 		display_speed = variable_speed;
 		displaySpeedLimit(display_speed);
@@ -1132,9 +1207,59 @@ void displaySpeedMain(void) {
 
 void checkWeather(void) {
 	//TODO: adjust speed based on weather data
-	uint32_t weather_speed = variable_speed;
-	if (weather_speed <= variable_speed - 5) {
-		variable_speed -= 5;
+	uint16_t weather_speed [NUM_WEATHER_CHECKS] = {variable_speed, variable_speed, variable_speed};
+
+	// Wind
+	cJSON * cJSON_Obj = NULL;
+	if (cJSON_HasObjectItem(weather_data, "wind")) {
+		cJSON_Obj = cJSON_GetObjectItem(cJSON_GetObjectItem(weather_data, "wind"), "speed");
+	}
+	double wind_speed = (cJSON_Obj == NULL) ? 0 : cJSON_Obj->valuedouble;
+	if (wind_speed <= 10) {
+		weather_speed[0] -= 0;
+	} else if (wind_speed <= 14) {
+		weather_speed[0] -= 5;
+	} else if (wind_speed <= 17) {
+		weather_speed[0] -= 10;
+	} else {
+		weather_speed[0] -= 15;
+	}
+
+	// Rain
+	cJSON_Obj = NULL;
+	if (cJSON_HasObjectItem(weather_data, "rain")) {
+		cJSON_Obj = cJSON_GetObjectItem(cJSON_GetObjectItem(weather_data, "rain"), "3h");
+	}
+	uint8_t volume = (cJSON_Obj == NULL) ? 0 : cJSON_Obj->valueint;
+	if (volume <= 7) {
+		weather_speed[1] -= 0;
+	} else if (volume <= 14) {
+		weather_speed[1] -= 5;
+	} else {
+		weather_speed[1] -= 10;
+	}
+
+	// Snow
+	cJSON_Obj = NULL;
+	if (cJSON_HasObjectItem(weather_data, "snow")) {
+		cJSON_Obj = cJSON_GetObjectItem(cJSON_GetObjectItem(weather_data, "snow"), "3h");
+	}
+	volume = (cJSON_Obj == NULL) ? 0 : cJSON_Obj->valueint;
+	if (volume <= 4) {
+		weather_speed[2] -= 0;
+	} else if (volume <= 14) {
+		weather_speed[2] -= 5;
+	} else if (volume <= 80) {
+		weather_speed[2] -= 15;
+	} else {
+		weather_speed[2] -= 30;
+	}
+
+	uint8_t i;
+	for (i = 0; i < NUM_WEATHER_CHECKS; i++) {
+		if (weather_speed[i] < variable_speed) {
+			variable_speed = weather_speed[i];
+		}
 	}
 }
 
@@ -1423,7 +1548,6 @@ uint16_t getTimeDeltaMin(Speed_Time * s_t, uint8_t cur_hour, uint8_t cur_min) {
 ///////////////////////////////////////////////////////////////////////////////
 
 void batteryMain(void) {
-	//TODO: check battery level against threshold, enter low power mode if necessary
 	if (state == LOW_POWER) {
 		if (adc_channels[BATTERY_ADC_CHANNEL] <= BATTERY_THRESH) {
 			state = prev_state;
