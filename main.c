@@ -47,6 +47,7 @@
 #define SEC_ROLLOVER 60
 #define MIN_ROLLOVER 60
 #define HOUR_ROLLOVER 24
+#define DAYS_PER_WEEK 7
 
 // Radar
 #define NUM_RADAR_PINS 11
@@ -71,12 +72,12 @@
 #define ADC_CONV_CPLT_MASK 0x20
 
 // LED
-#define NUM_LEDS 17
-#define GREEN 0
-#define RED 1
-#define BLUE 2
+#define NUM_LEDS 76
 #define BITS_PER_BYTE 8
 #define BYTES_PER_WORD 3
+#define RED 1
+#define GREEN 0
+#define BLUE 2
 //TODO: find good color values
 #define RED_COLOR 0xFF
 #define GREEN_COLOR 0xFF
@@ -102,10 +103,9 @@
 #define BATTERY_THRESH (0.75 * 0xFF) // 75% of 12 V operating voltage
 #define BATTERY_ADC_CHANNEL (ADC_CHANNELS - 1)
 
-// Speed predict table
-#define MAX_PREDICT_SIZE 10
-#define DAYS_PER_WEEK 7
-#define TIMES_PER_DAY (HOUR_ROLLOVER * 2) // 30 min intervals
+// Speed predict table - DEPRECATED
+//#define MAX_PREDICT_SIZE 10
+//#define TIMES_PER_DAY (HOUR_ROLLOVER * 2) // 30 min intervals
 
 // Display check
 #define DISPLAY_OFF_MIN 2
@@ -171,6 +171,7 @@ uint8_t radar_read [NUM_RADAR_SEL_PINS];
 typedef struct S_T {
 	uint8_t time_hour;
 	uint8_t time_min;
+	uint8_t time_sec;
 	uint16_t speed;
 } Speed_Time;
 Speed_Time speed_distribution [MAX_DISTRIBUTION_SIZE];
@@ -193,11 +194,11 @@ uint8_t led_data [NUM_LEDS][BYTES_PER_WORD]; // LED data to shift out
 // GREEN : led_data[i][0]
 // BLUE  : led_data[i][2]
 
-// Speed prediction table
-typedef struct Predict_Arr {
-	uint32_t speed_arr [MAX_PREDICT_SIZE];
-	uint8_t index;
-} Predict_Element;
+// Speed prediction table - DEPRECATED
+//typedef struct Predict_Arr {
+//	uint32_t speed_arr [MAX_PREDICT_SIZE];
+//	uint8_t index;
+//} Predict_Element;
 //Predict_Element predict_table [DAYS_PER_WEEK][TIMES_PER_DAY];
 
 // Battery
@@ -262,7 +263,7 @@ void checkWeather(void);
 void roundVariableSpeed(void);
 //void storeSpeedInTable(void); // DEPRECATED
 void displaySpeedLimit(uint32_t speed);
-uint8_t getDigitFromInt(uint8_t num);
+uint8_t intToSegment(uint8_t num);
 void clearLEDData(void);
 void sendLEDData(void);
 void sendLEDWord(uint8_t * word);
@@ -384,44 +385,14 @@ int main(void)
 
 	  if (pb_flag == 1) {
 		  pb_flag = 0;
-		  switch (mode) {
-		  case 0: for (i = 0; i < NUM_LEDS; i++) {
-				  	  led_data[i][RED] = 0xFF;
-				  	  led_data[i][GREEN] = 0x00;
-				  	  led_data[i][BLUE] = 0x00;
-			  	  }
-		  	  	  break;
-		  case 1: for (i = 0; i < NUM_LEDS; i++) {
-				  	  led_data[i][RED] = 0x00;
-				  	  led_data[i][GREEN] = 0xFF;
-				  	  led_data[i][BLUE] = 0x00;
-			  	  }
-		  	  	  break;
-		  case 2: for (i = 0; i < NUM_LEDS; i++) {
-				  	  led_data[i][RED] = 0x00;
-				  	  led_data[i][GREEN] = 0x00;
-				  	  led_data[i][BLUE] = 0xFF;
-			  	  }
-		  	  	  break;
-		  case 3: for (i = 0; i < NUM_LEDS; i++) {
-				  	  led_data[i][RED] = 0xFF;
-				  	  led_data[i][GREEN] = 0xFF;
-				  	  led_data[i][BLUE] = 0xFF;
-			  	  }
-		  	  	  break;
-		  case 4: for (i = 0; i < NUM_LEDS; i++) {
-				  	  led_data[i][RED] = 0x00;
-				  	  led_data[i][GREEN] = 0x00;
-				  	  led_data[i][BLUE] = 0x00;
-			  	  }
-		  	  	  break;
-		  }
-		  sendLEDData();
-		  mode = (mode + 1) % 5;
+		  displaySpeedLimit(mode);
+		  mode = (mode + 1) % 100;
+		  // wait
 		  for (i = 0; i < 10; i++) {
 			  for (j = 0; j < 10000; j++);
 		  }
 	  }
+
 
 
 //	  for (i = 0; i < NUM_LEDS; i++) {
@@ -433,7 +404,7 @@ int main(void)
 //	  clearLEDData();
 //	  sendLEDData();
 
-	  // latch high and wait
+	  // wait
 //	  for (i = 0; i < 10; i++) {
 //		  for (j = 0; j < 10000; j++);
 //	  }
@@ -1068,6 +1039,7 @@ void storeSpeedTime(void) {
 	speed_distribution[distribution_index].speed = speed;
 	speed_distribution[distribution_index].time_hour = hour;
 	speed_distribution[distribution_index].time_min = min;
+	speed_distribution[distribution_index].time_sec = sec;
 	distribution_index++;
 }
 
@@ -1121,18 +1093,23 @@ uint32_t segmentToInt(uint8_t seg) {
 
 // sorts speed_distribution by time most recent to oldest (decreasing)
 void sortDistributionTime(void) {
-	uint8_t i, j, max_time_index;
+	uint8_t i, j, k, max_time_index;
 
 	// selection sort
 	for (i = 0; i < distribution_index - 1; i++) {
 		max_time_index = i;
 
 		for (j = i + 1; j < distribution_index; j++) {
-			if (speed_distribution[j].time_hour >= (speed_distribution[max_time_index].time_hour + 1) % HOUR_ROLLOVER) {
+			if (speed_distribution[j].time_hour > speed_distribution[max_time_index].time_hour) {
 				max_time_index = j;
-			} else if (speed_distribution[j].time_hour == speed_distribution[max_time_index].time_hour &&
-					   speed_distribution[j].time_min > speed_distribution[max_time_index].time_min) {
-				max_time_index = j;
+			} else if (speed_distribution[j].time_hour == speed_distribution[max_time_index].time_hour) {
+				if (speed_distribution[j].time_min > speed_distribution[max_time_index].time_min) {
+					max_time_index = j;
+				} else if (speed_distribution[j].time_min == speed_distribution[max_time_index].time_min) {
+					if (speed_distribution[j].time_sec > speed_distribution[max_time_index].time_sec) {
+						max_time_index = j;
+					}
+				}
 			}
 		}
 
@@ -1141,6 +1118,21 @@ void sortDistributionTime(void) {
 			speed_time = speed_distribution[i];
 			speed_distribution[i] = speed_distribution[max_time_index];
 			speed_distribution[max_time_index] = speed_time;
+		}
+	}
+
+	// split around large timedeltas (rotate down)
+	for (i = 0; i < distribution_index - 1; i++) {
+		if (speed_distribution[i].time_hour > speed_distribution[i + 1].time_hour + (HOUR_ROLLOVER / 2)) {
+			// rotate down (i + 1) times
+			for (j = 0; j <= i; j++) {
+				// rotate down
+				speed_time = speed_distribution[0];
+				for (k = 0; k < distribution_index - 1; k++) {
+					speed_distribution[k] = speed_distribution[k + 1];
+				}
+				speed_distribution[distribution_index - 1] = speed_time;
+			}
 		}
 	}
 }
@@ -1175,8 +1167,11 @@ void removeSpeedTime(uint8_t index) {
 
 uint16_t getSpeedPercentile(void) {
 	sortDistributionSpeed();
-	//TODO: fix this
-	return speed_distribution[(uint16_t)(SPEED_PERCENTILE * distribution_index)].speed;
+	double index_d = SPEED_PERCENTILE * (distribution_index - 1);
+	uint8_t index_i = (uint8_t)(index_d);
+	double percentile = speed_distribution[index_i].speed;
+	percentile += (index_d > index_i) ? (index_d - index_i) * (speed_distribution[index_i + 1].speed - speed_distribution[index_i].speed) : 0;
+	return (uint16_t)(percentile + .5);
 }
 
 // sorts speed_distribution by speed lowest to highest (increasing)
@@ -1276,6 +1271,9 @@ uint8_t endOfWeatherData(void) {
 ///////////////////////////////////////////////////////////////////////////////
 
 void displaySpeedMain(void) {
+	if (variable_speed < MIN_SPEED) {
+		variable_speed = MIN_SPEED;
+	}
 //	storeSpeedInTable();
 	checkWeather();
 //	checkSpeedPrediction();
@@ -1427,17 +1425,19 @@ void roundVariableSpeed(void) {
 //}
 
 void displaySpeedLimit(uint32_t speed) {
+	clearLEDData();
+
 	// get digit/segment data
-	uint8_t tens_digit = getDigitFromInt(speed / 10);
+	uint8_t tens_digit = intToSegment(speed / 10);
 	if (speed < 10) {
 		tens_digit = 0;
 	}
-	uint8_t ones_digit = getDigitFromInt(speed % 10);
+	uint8_t ones_digit = intToSegment(speed % 10);
 
 	uint8_t i, j;
 
 	for (i = 0; i < BITS_PER_BYTE; i++) {
-		if ((tens_digit & 0x01) << i) {
+		if (tens_digit & (0x01 << i)) {
 			if (i == 0) {
 				for (j = SEGMENT0_ADDR; j < SEGMENT1_ADDR; j++) {
 					led_data[j][RED] = (uint8_t)(RED_COLOR * (state == LOW_POWER ? LP_BRIGHTNESS : BRIGHTNESS));
@@ -1483,7 +1483,7 @@ void displaySpeedLimit(uint32_t speed) {
 			}
 		}
 
-		if ((ones_digit & 0x01) << i) {
+		if (ones_digit & (0x01 << i)) {
 			if (i == 0) {
 				for (j = SEGMENT0_ADDR + (NUM_LEDS / 2); j < SEGMENT1_ADDR + (NUM_LEDS / 2); j++) {
 					led_data[j][RED] = (uint8_t)(RED_COLOR * (state == LOW_POWER ? LP_BRIGHTNESS : BRIGHTNESS));
@@ -1533,7 +1533,7 @@ void displaySpeedLimit(uint32_t speed) {
 	sendLEDData();
 }
 
-uint8_t getDigitFromInt(uint8_t num) {
+uint8_t intToSegment(uint8_t num) {
 	switch (num) {
 	case 0: return 0x7E;
 	case 1: return 0x42;
