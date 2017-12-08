@@ -78,14 +78,22 @@
 #define LD4_GPIO_Port GPIOC
 #define LD3_Pin GPIO_PIN_9
 #define LD3_GPIO_Port GPIOC
-#define Cell_Power_Pin GPIO_PIN_11
-#define Cell_Power_GPIO_Port GPIOA
+#define Wireless_Power_Pin GPIO_PIN_11
+#define Wireless_Power_GPIO_Port GPIOA
 #define SWDIO_Pin GPIO_PIN_13
 #define SWDIO_GPIO_Port GPIOA
 #define SWCLK_Pin GPIO_PIN_14
 #define SWCLK_GPIO_Port GPIOA
 #define LED_Out_Pin GPIO_PIN_3
 #define LED_Out_GPIO_Port GPIOB
+#define Radar_Power_1a_Pin GPIO_PIN_4
+#define Radar_Power_1a_GPIO_Port GPIOB
+#define Radar_Power_1b_Pin GPIO_PIN_5
+#define Radar_Power_1b_GPIO_Port GPIOB
+#define Radar_Power_2a_Pin GPIO_PIN_6
+#define Radar_Power_2a_GPIO_Port GPIOB
+#define Radar_Power_2b_Pin GPIO_PIN_7
+#define Radar_Power_2b_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
 
