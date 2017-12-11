@@ -62,7 +62,7 @@
 // Speed
 #define MAX_SPEED 999
 #define STATIC_SPEED 65 // default speed
-#define MIN_SPEED 40
+#define MIN_SPEED 0 // <- test; actual -> 40
 #define MAX_DISTRIBUTION_SIZE 100
 #define MAX_DISTRIBUTION_AGE_MIN 30
 #define SPEED_PERCENTILE 0.85 // 85th percentile
@@ -88,36 +88,36 @@
 #define SEGMENT4_ADDR 22
 #define SEGMENT5_ADDR 27
 #define SEGMENT6_ADDR 33
-//TODO: find good brightness values
 #define BRIGHTNESS 1 // 100% brightness
 #define LP_BRIGHTNESS 0.5 // 50% brightness for low power mode
 
 // Weather
 #define WEATHER_API_STR "GET /data/2.5/weather?id=4928096&appid=37813a3a15e507a6206d0a276ca84b29 \n\n"
-#define WEATHER_API_TEAM_STR "GET /477grp12/weather \n\n"
+#define WEATHER_API_TEAM_STR "GET /sd/weather.json \r\n"
 #define WEATHER_DATA_SIZE 600
 #define NUM_WEATHER_ATTEMPTS 5
 #define NUM_WEATHER_CHECKS 3
 
 // Battery
 //TODO: choose battery threshold level
-#define BATTERY_THRESH (0.75 * 0xFF) // 75% of 12 V operating voltage
+#define BATTERY_THRESH (0.90 * 0xFF) // 90% of 12 V operating voltage
 #define BATTERY_ADC_CHANNEL (ADC_CHANNELS - 1)
+#define BATTERY_ALERT_STR "GET /sd/battery_alert.php?hour=%d&min=%d&sec=%d \r\n"
 
 // Speed predict table - DEPRECATED
 //#define MAX_PREDICT_SIZE 10
 //#define TIMES_PER_DAY (HOUR_ROLLOVER * 2) // 30 min intervals
 
 // Display check
-#define DISPLAY_OFF_MIN 1 // min passed w/o car
+#define DISPLAY_OFF_MIN 5 // <- test; actual -> 1 // min passed w/o car
 
 // Timer interrupt constants and masks
 #define RADAR_INTR_COUNT_MS 999 //TODO: switch to actual -> 500 // ms
-#define RADAR_TRIGGER_COUNT_MS 500 //TODO: switch to actual -> 50 // ms
-#define WEATHER_INTR_COUNT_MIN 1 // <- test; actual -> 15 - min
-#define DISPLAY_SPEED_INTR_COUNT_MIN 1 // <- test; actual -> 15 - min
-#define DISPLAY_CHECK_INTR_COUNT_S 1 // sec
-#define BATTERY_INTR_COUNT_MIN 1 // min
+#define RADAR_TRIGGER_COUNT_MS 999 //TODO: switch to actual -> 50 // ms
+#define WEATHER_INTR_COUNT_MIN 5 // <- test; actual -> 15 - min
+#define DISPLAY_SPEED_INTR_COUNT_MIN 10 // <- test; actual -> 15 // min
+#define DISPLAY_CHECK_INTR_COUNT_S 10 // <- test; actual -> 1 // sec
+#define BATTERY_INTR_COUNT_MIN 10 // <- test; actual -> 1 // min
 
 #define RADAR_INTR_LP_COUNT_MS 999 // ms - 2x
 #define WEATHER_INTR_LP_COUNT_MIN 30 // min - 2x
@@ -131,7 +131,7 @@
 #define DISPLAY_CHECK_INTR_MASK 0x08
 #define BATTERY_INTR_MASK 0x10
 
-#define RADAR_POWER_COUNT 999
+#define RADAR_POWER_COUNT_MS 999
 #define RADAR_POWER_MASK 0x01
 #define RADAR_CHECK_MASK 0x02
 #define WEATHER_CHECK_MASK 0x04
@@ -158,7 +158,7 @@ uint8_t sec = 0, min = 0, hour = 0, day = 0;
 // Timer interrupt counts and flags
 uint16_t radar_intr_count = RADAR_INTR_COUNT_MS;
 uint16_t radar_trigger_count = RADAR_TRIGGER_COUNT_MS;
-uint16_t radar_power_count = RADAR_POWER_COUNT;
+uint16_t radar_power_count = RADAR_POWER_COUNT_MS;
 uint8_t weather_intr_count = WEATHER_INTR_COUNT_MIN;
 uint8_t display_speed_intr_count = DISPLAY_SPEED_INTR_COUNT_MIN;
 uint8_t display_check_intr_count = DISPLAY_CHECK_INTR_COUNT_S;
@@ -232,7 +232,6 @@ static void MX_ADC_Init(void);
 
 void init(void);
 void turnOnRadar(void);
-void turnOnWireless(void);
 void checkModuleStatus(void);
 
 // Radar
@@ -256,7 +255,7 @@ uint8_t endOfWeatherData(void);
 
 // Display speed
 void displaySpeedMain(void);
-void checkWeather(void);
+uint16_t checkWeather(uint16_t variable_speed_temp);
 //double convertKtoF(double k); // DEPRECATED
 //void checkSpeedPrediction(void); // DEPRECATED
 //uint16_t getPredictSpeed(void); // DEPRECATED
@@ -273,10 +272,10 @@ void sendLEDWord(uint8_t * word);
 // Display check
 void displayCheckMain(void);
 uint16_t getTimeDeltaMin(Speed_Time * s_t, uint8_t cur_hour, uint8_t cur_min);
+uint16_t getTimeDeltaSec(Speed_Time * s_t, uint8_t cur_hour, uint8_t cur_min, uint8_t cur_sec);
 
 // Battery
 void batteryMain(void);
-void enterLowPower(void);
 void sendAlert(void);
 
 /* USER CODE END PFP */
@@ -321,14 +320,12 @@ int main(void)
 
   HAL_GPIO_WritePin(LED_Out_GPIO_Port, LED_Out_Pin, GPIO_PIN_SET); // initialize LED_Out_Pin to not low for IDLE
   HAL_GPIO_WritePin(Radar_Trig_GPIO_Port, Radar_Trig_Pin, GPIO_PIN_SET); // set radar trigger high for IDLE
-  HAL_GPIO_WritePin(Radar_Power_1a_GPIO_Port, Radar_Power_1a_Pin, GPIO_PIN_SET); // set radar power 1 high for IDLE
-  HAL_GPIO_WritePin(Radar_Power_2a_GPIO_Port, Radar_Power_2a_Pin, GPIO_PIN_RESET); // set radar power 2 low for IDLE
+  HAL_GPIO_WritePin(Radar_Power_a_GPIO_Port, Radar_Power_a_Pin, GPIO_PIN_RESET); // set radar power 2 low for IDLE
 
-//  init();
+  init();
+//  displaySpeedLimit(STATIC_SPEED);
 //  turnOnRadar();
 //  uint16_t mode = 0;
-//  clearLEDData();
-  uint8_t spark = 0;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -413,46 +410,43 @@ int main(void)
 //	  checkWeather();
 */
 
-	  // SPARK
-	  if ((min % 30) < 15) {
-		  if (spark == 0) {
-			  displaySpeedLimit(65);
-			  spark = 1;
-		  }
-	  } else {
-		  if (spark == 1) {
-			  displaySpeedLimit(60);
-			  spark = 0;
-		  }
-	  }
-
+	  // Battery Alert Test
+/*
+	  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_SET);
+	  HAL_GPIO_WritePin(LD4_GPIO_Port, LD4_Pin, GPIO_PIN_RESET);
+//	  while (pb_flag == 0); // wait for user to push button
+//	  pb_flag = 0;
+	  HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+	  HAL_GPIO_WritePin(LD4_GPIO_Port, LD4_Pin, GPIO_PIN_SET);
+	  sendAlert();
+*/
 
 	  // Normal Operation
 
-//	  if (intr_flag & RADAR_INTR_MASK) {
-//		  radarMain();
-//		  intr_flag &= ~RADAR_INTR_MASK; // clear bit
-//	  }
+	  if (intr_flag & RADAR_INTR_MASK) {
+		  radarMain();
+		  intr_flag &= ~RADAR_INTR_MASK; // clear bit
+	  }
 
-//	  if (intr_flag & WEATHER_INTR_MASK) {
-//		  weatherMain();
-//		  intr_flag &= ~WEATHER_INTR_MASK; // clear bit
-//	  }
+	  if (intr_flag & WEATHER_INTR_MASK) {
+		  weatherMain();
+		  intr_flag &= ~WEATHER_INTR_MASK; // clear bit
+	  }
 
-//	  if (intr_flag & DISPLAY_SPEED_INTR_MASK) {
-//		  displaySpeedMain();
-//		  intr_flag &= ~DISPLAY_SPEED_INTR_MASK; // clear bit
-//	  }
+	  if (intr_flag & DISPLAY_SPEED_INTR_MASK) {
+		  displaySpeedMain();
+		  intr_flag &= ~DISPLAY_SPEED_INTR_MASK; // clear bit
+	  }
 
-//	  if (intr_flag & DISPLAY_CHECK_INTR_MASK) {
-//		  displayCheckMain();
-//		  intr_flag &= ~DISPLAY_CHECK_INTR_MASK; // clear bit
-//	  }
+	  if (intr_flag & DISPLAY_CHECK_INTR_MASK) {
+		  displayCheckMain();
+		  intr_flag &= ~DISPLAY_CHECK_INTR_MASK; // clear bit
+	  }
 
-//	  if (intr_flag & BATTERY_INTR_MASK) {
-//		  batteryMain();
-//		  intr_flag &= ~BATTERY_INTR_MASK; // clear bit
-//	  }
+	  if (intr_flag & BATTERY_INTR_MASK) {
+		  batteryMain();
+		  intr_flag &= ~BATTERY_INTR_MASK; // clear bit
+	  }
 
   }
   /* USER CODE END 3 */
@@ -735,7 +729,7 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(Wireless_Power_GPIO_Port, Wireless_Power_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, LED_Out_Pin|Radar_Power_1a_Pin|Radar_Power_2a_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, LED_Out_Pin|Radar_Power_a_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : Radar_Trig_Pin LD4_Pin LD3_Pin */
   GPIO_InitStruct.Pin = Radar_Trig_Pin|LD4_Pin|LD3_Pin;
@@ -764,18 +758,18 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(LED_Out_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : Radar_Power_1a_Pin Radar_Power_2a_Pin */
-  GPIO_InitStruct.Pin = Radar_Power_1a_Pin|Radar_Power_2a_Pin;
+  /*Configure GPIO pin : Radar_Power_a_Pin */
+  GPIO_InitStruct.Pin = Radar_Power_a_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  HAL_GPIO_Init(Radar_Power_a_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : Radar_Power_1b_Pin Radar_Power_2b_Pin */
-  GPIO_InitStruct.Pin = Radar_Power_1b_Pin|Radar_Power_2b_Pin;
+  /*Configure GPIO pin : Radar_Power_b_Pin */
+  GPIO_InitStruct.Pin = Radar_Power_b_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+  HAL_GPIO_Init(Radar_Power_b_GPIO_Port, &GPIO_InitStruct);
 
 }
 
@@ -804,24 +798,31 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 				}
 			}
 
-			if (min == weather_intr_count) {
+			//TODO: change sec back to min
+//			if (min == weather_intr_count) {
+			if (sec == weather_intr_count) {
 				intr_flag |= WEATHER_INTR_MASK; // set weather intr bit
 				weather_intr_count += (state == LOW_POWER) ? WEATHER_INTR_LP_COUNT_MIN : WEATHER_INTR_COUNT_MIN;
 				weather_intr_count %= MIN_ROLLOVER;
 			}
-			if (min == display_speed_intr_count) {
+
+//			if (min == display_speed_intr_count) {
+			if (sec == display_speed_intr_count) {
 				if (state != STATIC) {
 					intr_flag |= DISPLAY_SPEED_INTR_MASK; // set display speed intr bit
 				}
 				display_speed_intr_count += (state == LOW_POWER) ? DISPLAY_SPEED_INTR_LP_COUNT_MIN : DISPLAY_SPEED_INTR_COUNT_MIN;
 				display_speed_intr_count %= MIN_ROLLOVER;
 			}
+
 			if (sec == display_check_intr_count) {
 				intr_flag |= DISPLAY_CHECK_INTR_MASK; // set display check intr bit
 				display_check_intr_count += (state == LOW_POWER) ? DISPLAY_CHECK_INTR_LP_COUNT_S : DISPLAY_CHECK_INTR_COUNT_S;
 				display_check_intr_count %= SEC_ROLLOVER;
 			}
-			if (min == battery_intr_count) {
+
+//			if (min == battery_intr_count) {
+			if (sec == battery_intr_count) {
 				intr_flag |= BATTERY_INTR_MASK; // set battery intr bit
 				battery_intr_count += (state == LOW_POWER) ? BATTERY_INTR_LP_COUNT_MIN : BATTERY_INTR_COUNT_MIN;
 				battery_intr_count %= MIN_ROLLOVER;
@@ -874,63 +875,50 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
 }
 
 void init(void) {
-	// start TIM1 and TIM3 interrupts
+	// start TIM3 interrupt
 	HAL_TIM_Base_Start_IT(&htim3);
 
 	HAL_GPIO_WritePin(LED_Out_GPIO_Port, LED_Out_Pin, GPIO_PIN_SET); // initialize LED_Out_Pin to not low for IDLE
 	HAL_GPIO_WritePin(Radar_Trig_GPIO_Port, Radar_Trig_Pin, GPIO_PIN_SET); // set radar trigger high for IDLE
-	HAL_GPIO_WritePin(Radar_Power_1a_GPIO_Port, Radar_Power_1a_Pin, GPIO_PIN_SET); // set radar power 1 high for IDLE
-	HAL_GPIO_WritePin(Radar_Power_2a_GPIO_Port, Radar_Power_2a_Pin, GPIO_PIN_RESET); // set radar power 2 low for IDLE
+	HAL_GPIO_WritePin(Radar_Power_a_GPIO_Port, Radar_Power_a_Pin, GPIO_PIN_RESET); // set radar power 2 low for IDLE
 
 	clearLEDData();
 
 	turnOnRadar();
-	turnOnWireless();
 
-	uint8_t i;
+	displaySpeedLimit(STATIC_SPEED);
 
-	// check radar for correct operation
-	for (i = 0; i < NUM_RADAR_ATTEMPTS; i++) {
-		triggerRadar();
-		readRadar();
-		if (getRadarValue() != 0) {
-			module_check |= RADAR_CHECK_MASK;
-			break;
-		}
-	}
+//	uint8_t i;
 
-	// check WiFi module for correct operation
-	for (i = 0; i < NUM_WEATHER_ATTEMPTS; i++) {
-		weatherMain();
-		if (weather_data != NULL && cJSON_HasObjectItem(weather_data, "main")) {
-			module_check |= WEATHER_CHECK_MASK;
-			break;
-		}
-	}
+//	// check radar for correct operation
+//	for (i = 0; i < NUM_RADAR_ATTEMPTS; i++) {
+//		triggerRadar();
+//		readRadar();
+//		if (getRadarValue() != 0) {
+//			module_check |= RADAR_CHECK_MASK;
+//			break;
+//		}
+//	}
+//
+//	// check WiFi module for correct operation
+//	for (i = 0; i < NUM_WEATHER_ATTEMPTS; i++) {
+//		weatherMain();
+//		if (weather_data != NULL && cJSON_HasObjectItem(weather_data, "main")) {
+//			module_check |= WEATHER_CHECK_MASK;
+//			break;
+//		}
+//	}
 
-	checkModuleStatus();
+//	checkModuleStatus();
 }
 
 void turnOnRadar(void) {
-	// Radar power 1 transition
-	radar_power_count = (ms + RADAR_POWER_COUNT) % MS_ROLLOVER; // set count
+	radar_power_count = (ms + RADAR_POWER_COUNT_MS) % MS_ROLLOVER; // set count
 	module_check |= RADAR_POWER_MASK; // set bit
 
-	HAL_GPIO_WritePin(Radar_Power_1a_GPIO_Port, Radar_Power_1a_Pin, GPIO_PIN_RESET); // set radar power 1 low
+	HAL_GPIO_WritePin(Radar_Power_a_GPIO_Port, Radar_Power_a_Pin, GPIO_PIN_SET); // set radar power 1 high
 	while (module_check & RADAR_POWER_MASK); // wait for count
-	HAL_GPIO_WritePin(Radar_Power_1a_GPIO_Port, Radar_Power_1a_Pin, GPIO_PIN_SET); // set radar power 1 high
-
-	// Radar power 2 transition
-	radar_power_count = (ms + RADAR_POWER_COUNT) % MS_ROLLOVER; // set count
-	module_check |= RADAR_POWER_MASK; // set bit
-
-	HAL_GPIO_WritePin(Radar_Power_2a_GPIO_Port, Radar_Power_2a_Pin, GPIO_PIN_SET); // set radar power 1 high
-	while (module_check & RADAR_POWER_MASK); // wait for count
-	HAL_GPIO_WritePin(Radar_Power_2a_GPIO_Port, Radar_Power_2a_Pin, GPIO_PIN_RESET); // set radar power 2 low
-}
-
-void turnOnWireless(void) {
-	HAL_GPIO_WritePin(Wireless_Power_GPIO_Port, Wireless_Power_Pin, GPIO_PIN_SET); // set wireless power high
+	HAL_GPIO_WritePin(Radar_Power_a_GPIO_Port, Radar_Power_a_Pin, GPIO_PIN_RESET); // set radar power 2 low
 }
 
 void checkModuleStatus(void) {
@@ -960,15 +948,14 @@ void radarMain(void) {
 	storeSpeedTime();
 	sortDistributionTime();
 	cleanDistribution();
-	variable_speed = getSpeedPercentile();
 }
 
 void triggerRadar(void) {
 	radar_trigger_count = (ms + RADAR_TRIGGER_COUNT_MS) % MS_ROLLOVER; // set ms count
 	intr_flag &= ~RADAR_TRIGGER_MASK; // clear radar trigger bit
+
 	HAL_GPIO_WritePin(Radar_Trig_GPIO_Port, Radar_Trig_Pin, GPIO_PIN_RESET); // set radar trigger low
 	while ((intr_flag & RADAR_TRIGGER_MASK) == 0); // wait for counter
-	intr_flag &= ~RADAR_TRIGGER_MASK; // clear radar trigger bit
 	HAL_GPIO_WritePin(Radar_Trig_GPIO_Port, Radar_Trig_Pin, GPIO_PIN_SET); // set radar trigger high
 }
 
@@ -1002,7 +989,7 @@ void storeSpeedTime(void) {
 		if (radar_fails == NUM_RADAR_ATTEMPTS) {
 			radar_fails = 0; // clear num radar fails
 			module_check &= ~RADAR_CHECK_MASK; // clear radar check bit
-			checkModuleStatus();
+//			checkModuleStatus();
 		}
 		return;
 	}
@@ -1012,7 +999,7 @@ void storeSpeedTime(void) {
 	// check for STATIC state
 	if (state == STATIC) {
 		module_check |= RADAR_CHECK_MASK;
-		checkModuleStatus();
+//		checkModuleStatus();
 	}
 
 	// if speed_distribution is full, replace oldest speed
@@ -1151,6 +1138,12 @@ void removeSpeedTime(uint8_t index) {
 }
 
 uint16_t getSpeedPercentile(void) {
+	if (distribution_index == 0) {
+		return STATIC_SPEED;
+	} else if (distribution_index == 1) {
+		return speed_distribution[0].speed;
+	}
+
 	sortDistributionSpeed();
 	double index_d = SPEED_PERCENTILE * (distribution_index - 1);
 	uint8_t index_i = (uint8_t)(index_d);
@@ -1192,7 +1185,7 @@ void weatherMain(void) {
 }
 
 void retrieveWeatherData(void) {
-	HAL_UART_Transmit(&huart1, WEATHER_API_TEAM_STR, sizeof(WEATHER_API_TEAM_STR) - 1, HAL_MAX_DELAY);
+	HAL_UART_Transmit(&huart1, (uint8_t *)WEATHER_API_TEAM_STR, sizeof(WEATHER_API_TEAM_STR) - 1, HAL_MAX_DELAY);
 
 	uint16_t i = 0;
 	do {
@@ -1222,7 +1215,7 @@ void checkValidWeather(void) {
 		if (weather_fails == NUM_WEATHER_ATTEMPTS) {
 			weather_fails = 0; // clear num weather fails
 			module_check &= ~WEATHER_CHECK_MASK; // clear weather check bit
-			checkModuleStatus();
+//			checkModuleStatus();
 		}
 		return;
 	}
@@ -1232,7 +1225,7 @@ void checkValidWeather(void) {
 	// check for STATIC state
 	if (state == STATIC) {
 		module_check |= WEATHER_CHECK_MASK; // set weather check bit
-		checkModuleStatus();
+//		checkModuleStatus();
 	}
 }
 
@@ -1256,21 +1249,25 @@ uint8_t endOfWeatherData(void) {
 ///////////////////////////////////////////////////////////////////////////////
 
 void displaySpeedMain(void) {
-	if (variable_speed < MIN_SPEED) {
+	variable_speed = getSpeedPercentile();
+	uint16_t variable_speed_temp = variable_speed;
+
+	if (variable_speed_temp < MIN_SPEED) {
 		variable_speed = MIN_SPEED;
+		variable_speed_temp = MIN_SPEED;
 	}
 //	storeSpeedInTable();
-	checkWeather();
+	variable_speed_temp = checkWeather(variable_speed_temp);
 //	checkSpeedPrediction();
 	roundVariableSpeed();
-	if (variable_speed != display_speed) {
-		display_speed = variable_speed;
+	if (variable_speed_temp != display_speed) {
+		display_speed = variable_speed_temp;
 		displaySpeedLimit(display_speed);
 	}
 }
 
-void checkWeather(void) {
-	int16_t weather_speed [NUM_WEATHER_CHECKS] = {variable_speed, variable_speed, variable_speed};
+uint16_t checkWeather(uint16_t variable_speed_temp) {
+	int16_t weather_speed [NUM_WEATHER_CHECKS] = {variable_speed_temp, variable_speed_temp, variable_speed_temp};
 
 	// Wind
 	cJSON * cJSON_Obj = NULL;
@@ -1323,10 +1320,12 @@ void checkWeather(void) {
 		if (weather_speed[i] < MIN_SPEED) {
 			weather_speed[i] = MIN_SPEED;
 		}
-		if (weather_speed[i] < variable_speed) {
-			variable_speed = weather_speed[i];
+		if (weather_speed[i] < variable_speed_temp) {
+			variable_speed_temp = weather_speed[i];
 		}
 	}
+
+	return variable_speed_temp;
 }
 
 // DEPRECATED
@@ -1692,17 +1691,22 @@ void sendLEDWord(uint8_t * word) {
 
 void displayCheckMain(void) {
 	sortDistributionTime();
-	uint16_t timedelta_min = getTimeDeltaMin(&speed_distribution[0], hour, min);
+
+	//TODO: change sec back to min
+//	uint16_t timedelta_min = getTimeDeltaMin(&speed_distribution[0], hour, min);
+	uint16_t timedelta_sec = getTimeDeltaSec(&speed_distribution[0], hour, min, sec);
 
 	if (state == DISPLAY_OFF) {
-		if (timedelta_min <= DISPLAY_OFF_MIN) {
+//		if (timedelta_min <= DISPLAY_OFF_MIN) {
+		if (timedelta_sec <= DISPLAY_OFF_MIN) {
 			// turn display on
 			state = prev_state;
 			prev_state = DISPLAY_OFF;
 			displaySpeedLimit(display_speed);
 		}
 	} else {
-		if (timedelta_min > DISPLAY_OFF_MIN) {
+//		if (timedelta_min > DISPLAY_OFF_MIN) {
+		if (timedelta_sec > DISPLAY_OFF_MIN) {
 			// turn display off
 			prev_state = state;
 			state = DISPLAY_OFF;
@@ -1730,6 +1734,16 @@ uint16_t getTimeDeltaMin(Speed_Time * s_t, uint8_t cur_hour, uint8_t cur_min) {
 	return timedelta_min;
 }
 
+uint16_t getTimeDeltaSec(Speed_Time * s_t, uint8_t cur_hour, uint8_t cur_min, uint8_t cur_sec) {
+	uint16_t timedelta_min = getTimeDeltaMin(s_t, cur_hour, cur_min);
+
+	if (timedelta_min >= 1 && cur_sec < s_t->time_sec) {
+		timedelta_min--;
+	}
+
+	return timedelta_min * SEC_ROLLOVER + (cur_sec + SEC_ROLLOVER - s_t->time_sec) % SEC_ROLLOVER;
+}
+
 ///////////////////////////////////////////////////////////////////////////////
 // Battery / State of Charge												 //
 ///////////////////////////////////////////////////////////////////////////////
@@ -1743,29 +1757,27 @@ void batteryMain(void) {
 		if (adc_channels[BATTERY_ADC_CHANNEL] > BATTERY_THRESH) {
 			state = prev_state;
 			prev_state = LOW_POWER;
+			displaySpeedLimit(display_speed);
 		}
 	} else {
 		if (adc_channels[BATTERY_ADC_CHANNEL] <= BATTERY_THRESH) {
 			prev_state = state;
 			state = LOW_POWER;
-			enterLowPower();
+			displaySpeedLimit(display_speed);
 			sendAlert();
 		}
 	}
 }
 
-void enterLowPower(void) {
-	uint8_t i;
-	for (i = 0; i < NUM_LEDS; i++) {
-		led_data[i][RED] = (uint8_t)(led_data[i][RED] * LP_BRIGHTNESS);
-		led_data[i][GREEN] = (uint8_t)(led_data[i][GREEN] * LP_BRIGHTNESS);
-		led_data[i][BLUE] = (uint8_t)(led_data[i][BLUE] * LP_BRIGHTNESS);
-	}
-	sendLEDData();
-}
-
 void sendAlert(void) {
-	//TODO: send alert through WiFi module or light up LED
+	char alert [sizeof(BATTERY_ALERT_STR)];
+	uint8_t i;
+	for (i = 0; i < sizeof(alert); i++) {
+		alert[i] = '\0';
+	}
+	sprintf(alert, BATTERY_ALERT_STR, hour, min, sec);
+	while (alert[--i] == '\0');
+	HAL_UART_Transmit(&huart1, alert, i + 1, HAL_MAX_DELAY);
 }
 
 /* USER CODE END 4 */
